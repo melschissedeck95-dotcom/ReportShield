@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     }
 
     // Génération d'un lien sécurisé simulé (ou token unique pour une vraie BDD)
-    const resetLink = `https://reportsield-pro.sec/reset-password?email=${encodeURIComponent(email)}`;
+    const resetLink = `https://report-shield.vercel.app/reset-password?email=${encodeURIComponent(email)}`;
 
     // Envoi de l'e-mail via Resend
     const { data, error } = await resend.emails.send({
