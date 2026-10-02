@@ -3,19 +3,37 @@
 import React, { useState } from 'react';
 import { 
   Shield, User, Lock, Mail, Phone, ExternalLink, 
-  Share2, AlertTriangle, CheckCircle, RefreshCw, HelpCircle, ArrowLeft, LogOut
+  Share2, AlertTriangle, HelpCircle, ArrowLeft, LogOut
 } from 'lucide-react';
 
+// Définition des types pour TypeScript
+interface Report {
+  id: number;
+  title: string;
+  date: string;
+  status: string;
+  severity: string;
+}
+
+interface ProfileInfo {
+  title: string;
+  department: string;
+  badge: string;
+  stats: Record<string, string | number>;
+  reports: Report[];
+}
+
+type ProfileKey = 'soc' | 'pentester' | 'admin';
+
 export default function ReportShieldProApp() {
-  // États de l'application
-  const [currentView, setCurrentView] = useState('login'); // 'login', 'forgot-password', 'dashboard', 'support'
-  const [selectedRole, setSelectedRole] = useState('soc'); // 'soc', 'pentester', 'admin'
+  const [currentView, setCurrentView] = useState('login');
+  const [selectedRole, setSelectedRole] = useState<ProfileKey>('soc');
   const [emailInput, setEmailInput] = useState('');
   const [resetSent, setResetSent] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
 
-  // Données des différents profils et rapports associés
-  const profilesData = {
+  // Données typées des profils
+  const profilesData: Record<ProfileKey, ProfileInfo> = {
     soc: {
       title: "Analyste SOC Junior",
       department: "Cybersécurité & Surveillance",
@@ -51,7 +69,6 @@ export default function ReportShieldProApp() {
     }
   };
 
-  // Liens de partage
   const shareUrl = encodeURIComponent("https://reportsield-pro.sec");
   const shareText = encodeURIComponent("Découvrez ReportShield Pro, la plateforme de gestion des rapports de sécurité et d'analyse SOC !");
   
@@ -62,13 +79,14 @@ export default function ReportShieldProApp() {
     twitter: `https://twitter.com/intent/tweet?text=${shareText}&url=${shareUrl}`
   };
 
-  // Gestion de la réinitialisation du mot de passe
-  const handlePasswordReset = (e) => {
+  const handlePasswordReset = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (emailInput) {
       setResetSent(true);
     }
   };
+
+  const currentProfile = profilesData[selectedRole];
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between font-sans">
@@ -122,18 +140,10 @@ export default function ReportShieldProApp() {
             <button onClick={() => setShareOpen(false)} className="text-slate-400 hover:text-white text-xs">✕</button>
           </h3>
           <div className="space-y-2">
-            <a href={socialLinks.linkedin} target="_blank" rel="noopener noreferrer" className="block w-full text-left px-3 py-2 bg-blue-950/40 hover:bg-blue-900/50 text-blue-400 rounded text-sm transition border border-blue-800/50">
-              LinkedIn
-            </a>
-            <a href={socialLinks.telegram} target="_blank" rel="noopener noreferrer" className="block w-full text-left px-3 py-2 bg-sky-950/40 hover:bg-sky-900/50 text-sky-400 rounded text-sm transition border border-sky-800/50">
-              Telegram
-            </a>
-            <a href={socialLinks.whatsapp} target="_blank" rel="noopener noreferrer" className="block w-full text-left px-3 py-2 bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-400 rounded text-sm transition border border-emerald-800/50">
-              WhatsApp
-            </a>
-            <a href={socialLinks.twitter} target="_blank" rel="noopener noreferrer" className="block w-full text-left px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-sm transition border border-slate-700">
-              Twitter / X
-            </a>
+            <a href={socialLinks.linkedin} target="_blank" rel="noopener noreferrer" className="block w-full text-left px-3 py-2 bg-blue-950/45 hover:bg-blue-900/50 text-blue-400 rounded text-sm transition border border-blue-800/50">LinkedIn</a>
+            <a href={socialLinks.telegram} target="_blank" rel="noopener noreferrer" className="block w-full text-left px-3 py-2 bg-sky-950/45 hover:bg-sky-900/50 text-sky-400 rounded text-sm transition border border-sky-800/50">Telegram</a>
+            <a href={socialLinks.whatsapp} target="_blank" rel="noopener noreferrer" className="block w-full text-left px-3 py-2 bg-emerald-950/45 hover:bg-emerald-900/50 text-emerald-400 rounded text-sm transition border border-emerald-800/50">WhatsApp</a>
+            <a href={socialLinks.twitter} target="_blank" rel="noopener noreferrer" className="block w-full text-left px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-sm transition border border-slate-700">Twitter / X</a>
           </div>
         </div>
       )}
@@ -227,7 +237,7 @@ export default function ReportShieldProApp() {
             {/* Sélecteur de Profil */}
             <div className="flex flex-wrap gap-3 bg-slate-900 p-3 rounded-xl border border-slate-800">
               <span className="text-xs uppercase tracking-wider text-slate-400 self-center px-2 font-bold">Sélectionner le profil :</span>
-              {Object.keys(profilesData).map((key) => {
+              {(Object.keys(profilesData) as ProfileKey[]).map((key) => {
                 const p = profilesData[key];
                 const isActive = selectedRole === key;
                 return (
@@ -250,15 +260,15 @@ export default function ReportShieldProApp() {
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div>
                 <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 text-xs px-2.5 py-1 rounded-full font-semibold">
-                  {profilesData[selectedRole].badge}
+                  {currentProfile.badge}
                 </span>
-                <h2 className="text-2xl font-bold mt-2 text-slate-100">{profilesData[selectedRole].title}</h2>
-                <p className="text-sm text-slate-400">{profilesData[selectedRole].department}</p>
+                <h2 className="text-2xl font-bold mt-2 text-slate-100">{currentProfile.title}</h2>
+                <p className="text-sm text-slate-400">{currentProfile.department}</p>
               </div>
 
               {/* Statistiques rapides dynamiques */}
               <div className="flex gap-4 w-full md:w-auto">
-                {Object.entries(profilesData[selectedRole].stats).map(([statKey, statVal], idx) => (
+                {Object.entries(currentProfile.stats).map(([statKey, statVal], idx) => (
                   <div key={idx} className="bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-center flex-1 md:flex-initial">
                     <div className="text-xs text-slate-400 uppercase">{statKey}</div>
                     <div className="text-lg font-bold text-cyan-400 mt-1">{statVal}</div>
@@ -285,7 +295,7 @@ export default function ReportShieldProApp() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                    {profilesData[selectedRole].reports.map((report) => (
+                    {currentProfile.reports.map((report: Report) => (
                       <tr key={report.id} className="hover:bg-slate-800/50 transition">
                         <td className="px-4 py-3 font-medium text-slate-200">{report.title}</td>
                         <td className="px-4 py-3 text-slate-400">{report.date}</td>
