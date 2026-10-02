@@ -28,7 +28,8 @@ import {
   Share2,
   Send,
   UserCog,
-  Settings
+  Settings,
+  UserPlus
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -106,11 +107,13 @@ const PCI_REQUIREMENTS_V4 = [
 export default function Home() {
   const [user, setUser] = useState<any>(null);
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isSignUpMode, setIsSignUpMode] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const [savedReports, setSavedReports] = useState<ReportItem[]>([]);
 
-  // Modal de configuration du compte
+  // Configuration du compte
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [fullName, setFullName] = useState("");
   const [companyName, setCompanyName] = useState("");
@@ -184,18 +187,12 @@ export default function Home() {
     const initAuth = async () => {
       const { data } = await supabase.auth.getUser();
       setUser(data.user);
-      if (data.user) {
-        fetchReports();
-        fetchUserProfile(data.user.id);
-      }
+      if (data.user) fetchUserProfile(data.user.id);
     };
     initAuth();
     const { data: authListener } = supabase.auth.onAuthStateChange((_, session) => {
       setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchReports();
-        fetchUserProfile(session.user.id);
-      }
+      if (session?.user) fetchUserProfile(session.user.id);
     });
     return () => authListener.subscription.unsubscribe();
   }, []);
@@ -210,6 +207,31 @@ export default function Home() {
         setAnalystName(`${data.full_name || user?.email} (${data.job_title})`);
       }
     }
+  };
+
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage("");
+
+    if (isSignUpMode) {
+      const { data, error } = await supabase.auth.signUp({ email, password });
+      if (error) {
+        setMessage(`Erreur d'inscription : ${error.message}`);
+      } else {
+        setMessage("Compte créé avec succès ! Vous êtes connecté.");
+        setShowAuthModal(false);
+      }
+    } else {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        setMessage(`Erreur de connexion : ${error.message}`);
+      } else {
+        setMessage("Connexion réussie !");
+        setShowAuthModal(false);
+      }
+    }
+    setLoading(false);
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -231,11 +253,6 @@ export default function Home() {
       setShowConfigModal(false);
     }
     setLoading(false);
-  };
-
-  const fetchReports = async () => {
-    const { data } = await supabase.from("reports").select("*").order("created_at", { ascending: false });
-    if (data) setSavedReports(data as ReportItem[]);
   };
 
   const calculateCVSSScore = (): number => {
@@ -286,7 +303,7 @@ export default function Home() {
   };
 
   const handleSaveReport = async () => {
-    if (!user) { alert("Veuillez vous connecter ou créer un compte !"); return; }
+    if (!user) { alert("Veuillez vous connecter ou créer un compte !"); setShowAuthModal(true); return; }
     setLoading(true);
     const { error } = await supabase.from("reports").insert([{
       user_id: user.id,
@@ -312,7 +329,7 @@ export default function Home() {
     }]);
 
     if (error) alert(`Erreur: ${error.message}`);
-    else { alert("Rapport sauvegardé avec succès !"); fetchReports(); }
+    else alert("Rapport sauvegardé avec succès !");
     setLoading(false);
   };
 
@@ -366,15 +383,9 @@ export default function Home() {
                 </button>
               </div>
             ) : (
-              <form onSubmit={async (e) => {
-                e.preventDefault();
-                const { error } = await supabase.auth.signInWithOtp({ email });
-                if (error) alert(error.message);
-                else setMessage("Lien de connexion / création envoyé par email !");
-              }} className="flex gap-2">
-                <input type="email" placeholder="votre@email.com" value={email} onChange={(e) => setEmail(e.target.value)} className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs text-white" />
-                <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded text-xs cursor-pointer">S'inscrire / Connexion</button>
-              </form>
+              <button onClick={() => setShowAuthModal(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-lg">
+                <LogIn className="w-4 h-4" /> Connexion / Inscription
+              </button>
             )}
 
             <button onClick={handleSaveReport} disabled={loading} className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-xs cursor-pointer">
@@ -386,9 +397,44 @@ export default function Home() {
           </div>
         </header>
 
-        {message && <div className="bg-emerald-950 border border-emerald-800 text-emerald-200 text-xs px-8 py-2 text-center no-print">{message}</div>}
+        {/* MODAL AUTHENTIFICATION (CONNEXION / CRÉATION DE COMPTE) */}
+        {showAuthModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 no-print">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl space-y-4">
+              <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-blue-500" /> {isSignUpMode ? "Créer un Compte ReportShield" : "Connexion à ReportShield Pro"}
+                </h3>
+                <button onClick={() => setShowAuthModal(false)} className="text-slate-400 hover:text-white text-xs">✕</button>
+              </div>
 
-        {/* MODAL DE CONFIGURATION DU COMPTE */}
+              {message && <div className="bg-slate-950 p-2 text-xs text-amber-400 rounded border border-slate-800">{message}</div>}
+
+              <form onSubmit={handleAuthSubmit} className="space-y-4 text-xs">
+                <div>
+                  <label className="block text-slate-400 mb-1">Adresse Email</label>
+                  <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="analyste@cyber.com" className="w-full bg-slate-950 border border-slate-800 rounded p-2.5 text-white" />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Mot de passe</label>
+                  <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-slate-950 border border-slate-800 rounded p-2.5 text-white" />
+                </div>
+
+                <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-lg cursor-pointer">
+                  {isSignUpMode ? "S'inscrire" : "Se Connecter"}
+                </button>
+              </form>
+
+              <div className="text-center pt-2 border-t border-slate-800 text-xs">
+                <button onClick={() => setIsSignUpMode(!isSignUpMode)} className="text-blue-400 hover:underline cursor-pointer">
+                  {isSignUpMode ? "Déjà un compte ? Connectez-vous" : "Pas encore de compte ? Créez-en un"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL CONFIGURATION DU COMPTE */}
         {showConfigModal && (
           <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 no-print">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl space-y-4">
@@ -396,12 +442,12 @@ export default function Home() {
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
                   <Settings className="w-4 h-4 text-blue-400" /> Configuration du Compte & Analyste
                 </h3>
-                <button onClick={() => setShowConfigModal(false)} className="text-slate-400 hover:text-white text-xs">✕ Fermer</button>
+                <button onClick={() => setShowConfigModal(false)} className="text-slate-400 hover:text-white text-xs">✕</button>
               </div>
 
               <form onSubmit={handleSaveProfile} className="space-y-4 text-xs">
                 <div>
-                  <label className="block text-slate-400 mb-1">Nom Complet (Prénom Nom)</label>
+                  <label className="block text-slate-400 mb-1">Nom Complet</label>
                   <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="ex: Kossonou Fieny" className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white" />
                 </div>
                 <div>
@@ -409,7 +455,7 @@ export default function Home() {
                   <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="ex: Colombe Cyber Defense (CCDOC)" className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white" />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">Intitulé de Poste / Rôle</label>
+                  <label className="block text-slate-400 mb-1">Intitulé de Poste</label>
                   <input type="text" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="ex: Junior SOC Analyst / QSA Assistant" className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white" />
                 </div>
                 <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-lg cursor-pointer">
