@@ -27,8 +27,8 @@ import {
   FileSpreadsheet,
   Share2,
   Send,
-  LifeBuoy,
-  Mail
+  UserCog,
+  Settings
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -107,14 +107,21 @@ export default function Home() {
   const [user, setUser] = useState<any>(null);
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
   const [savedReports, setSavedReports] = useState<ReportItem[]>([]);
+
+  // Modal de configuration du compte
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [fullName, setFullName] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [jobTitle, setJobTitle] = useState("Junior SOC Analyst / QSA Assistant");
 
   const [lang, setLang] = useState<"fr" | "en">("fr");
   const [reportType, setReportType] = useState<"SOC_CTI" | "Pentest" | "Compliance">("Pentest");
 
-  // Métadonnées
+  // Métadonnées du rapport
   const [clientName, setClientName] = useState("Entreprise Client SA");
-  const [analystName, setAnalystName] = useState("Analyste SOC / Pentesteur QSA");
+  const [analystName, setAnalystName] = useState("Analyste Cyber / RSSI");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [tlpMarking, setTlpMarking] = useState("TLP:AMBER");
   const [reportVersion, setReportVersion] = useState("v1.0 (Rapport Final)");
@@ -177,10 +184,54 @@ export default function Home() {
     const initAuth = async () => {
       const { data } = await supabase.auth.getUser();
       setUser(data.user);
-      if (data.user) fetchReports();
+      if (data.user) {
+        fetchReports();
+        fetchUserProfile(data.user.id);
+      }
     };
     initAuth();
+    const { data: authListener } = supabase.auth.onAuthStateChange((_, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchReports();
+        fetchUserProfile(session.user.id);
+      }
+    });
+    return () => authListener.subscription.unsubscribe();
   }, []);
+
+  const fetchUserProfile = async (userId: string) => {
+    const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
+    if (data) {
+      if (data.full_name) setFullName(data.full_name);
+      if (data.company_name) setCompanyName(data.company_name);
+      if (data.job_title) {
+        setJobTitle(data.job_title);
+        setAnalystName(`${data.full_name || user?.email} (${data.job_title})`);
+      }
+    }
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setLoading(true);
+    const { error } = await supabase.from("profiles").upsert({
+      id: user.id,
+      full_name: fullName,
+      company_name: companyName,
+      job_title: jobTitle,
+      updated_at: new Date().toISOString()
+    });
+
+    if (error) alert(`Erreur de configuration: ${error.message}`);
+    else {
+      alert("Profil configuré avec succès !");
+      setAnalystName(`${fullName} (${jobTitle})`);
+      setShowConfigModal(false);
+    }
+    setLoading(false);
+  };
 
   const fetchReports = async () => {
     const { data } = await supabase.from("reports").select("*").order("created_at", { ascending: false });
@@ -235,7 +286,7 @@ export default function Home() {
   };
 
   const handleSaveReport = async () => {
-    if (!user) { alert("Veuillez vous connecter !"); return; }
+    if (!user) { alert("Veuillez vous connecter ou créer un compte !"); return; }
     setLoading(true);
     const { error } = await supabase.from("reports").insert([{
       user_id: user.id,
@@ -265,7 +316,6 @@ export default function Home() {
     setLoading(false);
   };
 
-  // Liens de partage rapide
   const shareTitle = encodeURIComponent(`Rapport d'Expertise Cyber - ReportShield Pro (${clientName})`);
   const shareUrl = encodeURIComponent(typeof window !== "undefined" ? window.location.href : "https://reportshield.vercel.app");
   
@@ -305,14 +355,28 @@ export default function Home() {
             <button onClick={() => setLang(lang === "fr" ? "en" : "fr")} className="bg-slate-800 text-amber-400 px-3 py-1.5 rounded-lg border border-slate-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer">
               <Languages className="w-4 h-4" /> {lang === "fr" ? "English 🇬🇧" : "Français 🇫🇷"}
             </button>
+
             {user ? (
-              <span className="text-xs text-slate-300 bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700">{user.email}</span>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setShowConfigModal(true)} className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg border border-slate-700 text-xs flex items-center gap-1.5 cursor-pointer">
+                  <UserCog className="w-4 h-4 text-blue-400" /> {fullName || user.email}
+                </button>
+                <button onClick={async () => { await supabase.auth.signOut(); setUser(null); }} className="bg-red-600/20 text-red-400 p-1.5 rounded-lg border border-red-500/30 hover:bg-red-600/30 cursor-pointer" title="Déconnexion">
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
             ) : (
-              <form onSubmit={async (e) => { e.preventDefault(); await supabase.auth.signInWithOtp({ email }); }} className="flex gap-2">
-                <input type="email" placeholder="email@domain.com" value={email} onChange={(e) => setEmail(e.target.value)} className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs text-white" />
-                <button type="submit" className="bg-blue-600 text-white px-3 py-1 rounded text-xs">Connexion</button>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const { error } = await supabase.auth.signInWithOtp({ email });
+                if (error) alert(error.message);
+                else setMessage("Lien de connexion / création envoyé par email !");
+              }} className="flex gap-2">
+                <input type="email" placeholder="votre@email.com" value={email} onChange={(e) => setEmail(e.target.value)} className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs text-white" />
+                <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded text-xs cursor-pointer">S'inscrire / Connexion</button>
               </form>
             )}
+
             <button onClick={handleSaveReport} disabled={loading} className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-xs cursor-pointer">
               <Save className="w-4 h-4" /> Sauvegarder
             </button>
@@ -321,6 +385,40 @@ export default function Home() {
             </button>
           </div>
         </header>
+
+        {message && <div className="bg-emerald-950 border border-emerald-800 text-emerald-200 text-xs px-8 py-2 text-center no-print">{message}</div>}
+
+        {/* MODAL DE CONFIGURATION DU COMPTE */}
+        {showConfigModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 no-print">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl space-y-4">
+              <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-blue-400" /> Configuration du Compte & Analyste
+                </h3>
+                <button onClick={() => setShowConfigModal(false)} className="text-slate-400 hover:text-white text-xs">✕ Fermer</button>
+              </div>
+
+              <form onSubmit={handleSaveProfile} className="space-y-4 text-xs">
+                <div>
+                  <label className="block text-slate-400 mb-1">Nom Complet (Prénom Nom)</label>
+                  <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="ex: Kossonou Fieny" className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white" />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Entreprise / Organisation</label>
+                  <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="ex: Colombe Cyber Defense (CCDOC)" className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white" />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Intitulé de Poste / Rôle</label>
+                  <input type="text" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="ex: Junior SOC Analyst / QSA Assistant" className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white" />
+                </div>
+                <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-lg cursor-pointer">
+                  Enregistrer les paramètres
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* SÉLECTION DES 3 PROFILS */}
         <div className="bg-slate-900/50 border-b border-slate-800 px-8 py-3 flex items-center justify-between no-print">
@@ -358,7 +456,7 @@ export default function Home() {
                   <input type="text" value={clientName} onChange={(e) => setClientName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white" />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">Analyste / Auditeur</label>
+                  <label className="block text-slate-400 mb-1">Analyste / Signataire</label>
                   <input type="text" value={analystName} onChange={(e) => setAnalystName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white" />
                 </div>
                 <div>
@@ -768,10 +866,10 @@ export default function Home() {
                 </div>
               )}
 
-              {/* EN-TÊTE SUPPORT / CONTACT DANS LE RAPPORT PDF */}
+              {/* EN-TÊTE SUPPORT & CONTACT DANS LE RAPPORT PDF */}
               <div className="border-t pt-3 mt-4 text-[9px] text-slate-500 flex justify-between items-center">
                 <span>Plateforme ReportShield Pro — Livrable certifié</span>
-                <span>Support Technique : support@reportshield.io | Renseignements & Partenariats</span>
+                <span>Support & Partenariats : support@reportshield.io</span>
               </div>
 
             </div>
