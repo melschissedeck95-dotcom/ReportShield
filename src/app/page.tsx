@@ -11,7 +11,6 @@ import {
   CheckCircle,
   FolderOpen,
   Trash2,
-  Clock,
   Image as ImageIcon,
   Plus,
   Crosshair,
@@ -22,12 +21,14 @@ import {
   Wand2,
   Calculator,
   Layers,
-  History,
   CheckSquare,
   Award,
   Activity,
   Cpu,
-  Sliders
+  Sliders,
+  FileCheck2,
+  BarChart3,
+  AlertTriangle
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -72,6 +73,9 @@ interface ReportItem {
   pci_scores?: Record<string, boolean>;
   iso_maturity_score?: number;
   pci_maturity_score?: number;
+  gap_analysis_summary?: string;
+  gap_action_plan?: string;
+  target_framework?: string;
   created_at: string;
 }
 
@@ -86,22 +90,28 @@ const MITRE_TACTICS = [
   { name: "Exfiltration", techniques: ["T1041 - Exfiltration Over C2 Channel", "T1567 - Exfiltration Over Web Service"] },
 ];
 
-const ISO_CONTROLS = [
-  { id: "A5.1", label: "Politiques de sécurité de l'information documentées" },
-  { id: "A5.7", label: "Threat Intelligence intégrée et exploitée" },
-  { id: "A5.15", label: "Gestion et contrôle strict des accès (RBAC)" },
-  { id: "A8.8", label: "Gestion des vulnérabilités et correctifs (Patching)" },
-  { id: "A8.12", label: "Prévention contre les fuites de données (DLP)" },
-  { id: "A8.16", label: "Surveillance et journalisation continue (SIEM)" },
+// Contrôles ISO/IEC 27001:2022 structurés selon les 4 thèmes de l'Annexe A
+const ISO_CONTROLS_2022 = [
+  { id: "A5.1", theme: "Organisationnel", label: "Politiques de sécurité de l'information documentées et révisées" },
+  { id: "A5.7", theme: "Organisationnel", label: "Threat Intelligence intégrée et exploitée opérationnellement" },
+  { id: "A5.15", theme: "Organisationnel", label: "Gestion et contrôle des accès fondé sur les besoins d'en connaître (RBAC)" },
+  { id: "A6.8", theme: "Personnes", label: "Sensibilisation, formation et évaluation à la sécurité des collaborateurs" },
+  { id: "A7.4", theme: "Physique", label: "Surveillance physique des accès aux locaux et centres de données" },
+  { id: "A8.8", theme: "Technique", label: "Gestion des vulnérabilités techniques et application des correctifs" },
+  { id: "A8.12", theme: "Technique", label: "Prévention contre la fuite de données (DLP)" },
+  { id: "A8.16", theme: "Technique", label: "Surveillance, journalisation et analyse des événements de sécurité (SIEM)" },
 ];
 
-const PCI_CONTROLS = [
-  { id: "Req1", label: "Pare-feu et microsegmentation du CDE configurés" },
-  { id: "Req3", label: "Données de cartes (PAN) chiffrées au repos" },
-  { id: "Req6", label: "Applications sécurisées et patchs appliqués sous 30j" },
-  { id: "Req8", label: "Authentification multifacteur (MFA) obligatoire pour accès CDE" },
-  { id: "Req10", label: "Journalisation active et conservation des logs 12 mois" },
-  { id: "Req11", label: "Scans de vulnérabilités ASV et tests d'intrusion réguliers" },
+// Exigences fondamentales PCI DSS v4.0
+const PCI_CONTROLS_V4 = [
+  { id: "Req 1", reqGroup: "Réseau Sécurisé", label: "Maintien de contrôles de sécurité réseau et microsegmentation du CDE" },
+  { id: "Req 3", reqGroup: "Protection des Données", label: "Chiffrement des PAN au repos et interdiction de stockage du SAD" },
+  { id: "Req 4", reqGroup: "Protection des Données", label: "Chiffrement fort des données de cartes lors des transmissions ouvertes" },
+  { id: "Req 6", reqGroup: "Gestion des Vulnérabilités", label: "Développement sécurisé et correctifs critiques appliqués sous 30 jours" },
+  { id: "Req 8", reqGroup: "Contrôle d'Accès", label: "MFA obligatoire pour tout accès administrateur et accès réseau au CDE" },
+  { id: "Req 10", reqGroup: "Surveillance & Logging", label: "Journalisation active des accès et conservation des logs 12 mois minimum" },
+  { id: "Req 11", reqGroup: "Tests Réguliers", label: "Scans de vulnérabilités ASV trimestriels et tests d'intrusion annuels" },
+  { id: "Req 12", reqGroup: "Gouvernance", label: "Maintien d'une politique de sécurité globale et évaluation des risques" },
 ];
 
 export default function Home() {
@@ -111,10 +121,10 @@ export default function Home() {
   const [message, setMessage] = useState("");
   const [savedReports, setSavedReports] = useState<ReportItem[]>([]);
 
-  // Gestion des Onglets
-  const [activeTab, setActiveTab] = useState<"incident" | "cti" | "compliance" | "history">("incident");
+  // Navigation par Onglets
+  const [activeTab, setActiveTab] = useState<"incident" | "cti" | "compliance" | "gap_analysis" | "history">("compliance");
 
-  const [reportType, setReportType] = useState<string>("SOC Incident");
+  const [reportType, setReportType] = useState<string>("Rapport d'Écart de Conformité (Gap Analysis)");
   const [logoBase64, setLogoBase64] = useState<string>("");
   const [mitreTactic, setMitreTactic] = useState<string>("Credential Access");
   const [mitreTechnique, setMitreTechnique] = useState<string>("T1110 - Brute Force");
@@ -134,36 +144,49 @@ export default function Home() {
 
   const [rawLogsText, setRawLogsText] = useState<string>("");
 
+  // Contrôles ISO & PCI
   const [isoChecks, setIsoChecks] = useState<Record<string, boolean>>({
-    "A5.1": true, "A5.7": false, "A5.15": true, "A8.8": false, "A8.12": false, "A8.16": true,
+    "A5.1": true, "A5.7": false, "A5.15": true, "A6.8": true,
+    "A7.4": false, "A8.8": false, "A8.12": false, "A8.16": true,
   });
 
   const [pciChecks, setPciChecks] = useState<Record<string, boolean>>({
-    "Req1": true, "Req3": false, "Req6": true, "Req8": false, "Req10": true, "Req11": false,
+    "Req 1": true, "Req 3": false, "Req 4": true, "Req 6": false,
+    "Req 8": false, "Req 10": true, "Req 11": false, "Req 12": true,
   });
+
+  // Gap Analysis Textes
+  const [gapSummary, setGapSummary] = useState<string>(
+    "L'évaluation initiale met en évidence un alignement partiel sur l'ISO 27001:2022 et PCI DSS v4.0. " +
+    "Les principaux écarts critiques concernent l'absence de MFA généralisé sur le CDE, le retard d'application des correctifs de vulnérabilités et l'absence d'outils DLP."
+  );
+  
+  const [gapActionPlan, setGapActionPlan] = useState<string>(
+    "1. [Priorité Critique] Déployer l'authentification multifacteur (MFA) sous 15 jours sur tous les accès administrateurs et accès distants.\n" +
+    "2. [Priorité Élevée] Automatiser la gestion des correctifs de sécurité (Patch Management) sous 30 jours (PCI DSS Req 6 / ISO A8.8).\n" +
+    "3. [Priorité Moyenne] Formaliser et diffuser la politique de classification des données et mettre en place une solution DLP (ISO A8.12)."
+  );
 
   const [iocs, setIocs] = useState<IOCItem[]>([
     { id: "1", type: "IP Address", value: "192.168.1.105", description: "IP source force brute" },
     { id: "2", type: "Hash SHA256", value: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", description: "Payload malveillant" }
   ]);
-  const [newIoc, setNewIoc] = useState({ type: "IP Address", value: "", description: "" });
 
   const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([
     { id: "1", time: "08:15:00", title: "Détection brute force", description: "Alerte SIEM VPN." },
     { id: "2", time: "08:22:30", title: "Accès compromis", description: "Connexion réussie depuis 192.168.1.105." }
   ]);
-  const [newEvent, setNewEvent] = useState({ time: "", title: "", description: "" });
 
   const [formData, setFormData] = useState({
     clientName: "Entreprise Client SA",
-    analystName: "Analyste Cyber",
+    analystName: "Analyste Cyber / RSSI",
     date: new Date().toISOString().split("T")[0],
-    title: "Suspicion d'intrusion et activité anormale",
-    severity: "Élevée",
-    systems: "Serveur Principal, Pare-feu de bordure",
-    description: "Détection de multiples tentatives d'authentification échouées suivies d'une élévation de privilèges non autorisée.",
-    rootCause: "Compromission de mot de passe via une attaque de force brute sur un accès VPN sans MFA.",
-    recommendations: "1. Activer le MFA obligatoire.\n2. Isoler la machine impactée.\n3. Mettre à jour les règles du pare-feu.",
+    title: "Évaluation de Maturité & Audit d'Écart de Conformité",
+    severity: "Moyenne",
+    systems: "Système d'Information Global & Périmètre CDE",
+    description: "Audit d'alignement stratégique et technique mené selon les référentiels ISO/IEC 27001:2022 et PCI DSS v4.0 afin d'identifier les écarts opérationnels et de définir le plan d'action de remédiation pour la PME.",
+    rootCause: "Absence de politiques d'accès renforcées (MFA) et processus d'évaluation régulière des vulnérabilités non formalisé.",
+    recommendations: "Suivre la feuille de route d'audit d'écart : Implémentation prioritaire du MFA, régularisation des scans ASV et mise en place d'une surveillance continue SIEM.",
   });
 
   useEffect(() => {
@@ -201,12 +224,14 @@ export default function Home() {
   };
 
   const isoMaturityPercent = Math.round(
-    (Object.values(isoChecks).filter(Boolean).length / ISO_CONTROLS.length) * 100
+    (Object.values(isoChecks).filter(Boolean).length / ISO_CONTROLS_2022.length) * 100
   );
 
   const pciMaturityPercent = Math.round(
-    (Object.values(pciChecks).filter(Boolean).length / PCI_CONTROLS.length) * 100
+    (Object.values(pciChecks).filter(Boolean).length / PCI_CONTROLS_V4.length) * 100
   );
+
+  const overallMaturityScore = Math.round((isoMaturityPercent + pciMaturityPercent) / 2);
 
   const calculateCVSSScore = (): number => {
     const iss = 1 - (1 - cvssImpactC) * (1 - cvssImpactI) * (1 - cvssImpactA);
@@ -236,27 +261,6 @@ export default function Home() {
     } else {
       alert("Aucun IOC trouvé.");
     }
-  };
-
-  const handleExportSTIX = () => {
-    const stixBundle = {
-      type: "bundle",
-      id: `bundle--${crypto.randomUUID()}`,
-      objects: iocs.map(ioc => ({
-        type: "indicator",
-        spec_version: "2.1",
-        id: `indicator--${ioc.id}`,
-        pattern: `[ipv4-addr:value = '${ioc.value}']`,
-        description: ioc.description
-      }))
-    };
-
-    const blob = new Blob([JSON.stringify(stixBundle, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `STIX2.1_Report_${formData.clientName}.json`;
-    link.click();
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -306,7 +310,9 @@ export default function Home() {
         iso_scores: isoChecks,
         pci_scores: pciChecks,
         iso_maturity_score: isoMaturityPercent,
-        pci_maturity_score: pciMaturityPercent
+        pci_maturity_score: pciMaturityPercent,
+        gap_analysis_summary: gapSummary,
+        gap_action_plan: gapActionPlan
       },
     ]);
 
@@ -338,7 +344,9 @@ export default function Home() {
     setLogoBase64(report.logo_url || "");
     setIsoChecks(report.iso_scores || {});
     setPciChecks(report.pci_scores || {});
-    setReportType(report.report_type || "SOC Incident");
+    setGapSummary(report.gap_analysis_summary || "");
+    setGapActionPlan(report.gap_action_plan || "");
+    setReportType(report.report_type || "Rapport d'Écart de Conformité (Gap Analysis)");
   };
 
   const deleteReport = async (id: string, e: React.MouseEvent) => {
@@ -368,7 +376,7 @@ export default function Home() {
 
       <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
         
-        {/* EN-TÊTE PANORAMIQUE DYNAMIQUE */}
+        {/* EN-TÊTE PANORAMIQUE */}
         <header className="bg-slate-900/80 backdrop-blur border-b border-slate-800 px-8 py-4 flex flex-col md:flex-row items-center justify-between gap-4 sticky top-0 z-50 no-print">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-600/20 border border-blue-500/40 rounded-xl animate-pulse">
@@ -378,15 +386,31 @@ export default function Home() {
               <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
                 ReportShield <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full border border-blue-500/30">Pro SaaS</span>
               </h1>
-              <p className="text-xs text-slate-400">Plateforme SOC, Threat Intelligence & Conformité</p>
+              <p className="text-xs text-slate-400">SOC, Threat Intelligence & Gap Analysis Normatif</p>
             </div>
           </div>
 
-          {/* BARRE DE NAVIGATION ANIMÉE */}
+          {/* BARRE DE NAVIGATION */}
           <nav className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
             <button
+              onClick={() => setActiveTab("compliance")}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                activeTab === "compliance" ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 scale-105" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Award className="w-4 h-4" /> Conformité Normes
+            </button>
+            <button
+              onClick={() => setActiveTab("gap_analysis")}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                activeTab === "gap_analysis" ? "bg-amber-600 text-white shadow-lg shadow-amber-600/30 scale-105" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <FileCheck2 className="w-4 h-4" /> Gap Analysis PME
+            </button>
+            <button
               onClick={() => setActiveTab("incident")}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === "incident" ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30 scale-105" : "text-slate-400 hover:text-white"
               }`}
             >
@@ -394,23 +418,15 @@ export default function Home() {
             </button>
             <button
               onClick={() => setActiveTab("cti")}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === "cti" ? "bg-cyan-600 text-white shadow-lg shadow-cyan-600/30 scale-105" : "text-slate-400 hover:text-white"
               }`}
             >
-              <Globe className="w-4 h-4" /> Threat Intel (CTI)
-            </button>
-            <button
-              onClick={() => setActiveTab("compliance")}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === "compliance" ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 scale-105" : "text-slate-400 hover:text-white"
-              }`}
-            >
-              <Award className="w-4 h-4" /> Conformité ISO & PCI
+              <Globe className="w-4 h-4" /> CTI & Threat Intel
             </button>
             <button
               onClick={() => setActiveTab("history")}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === "history" ? "bg-purple-600 text-white shadow-lg shadow-purple-600/30 scale-105" : "text-slate-400 hover:text-white"
               }`}
             >
@@ -452,36 +468,146 @@ export default function Home() {
           </div>
         )}
 
-        {/* CONTENU PANORAMIQUE EN 2 COLONNES (LARGEUR TOTALE) */}
+        {/* CONTENU PANORAMIQUE 12 COLONNES */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 p-8">
           
           {/* COLONNE GAUCHE (MODULES ANIMÉS) - SPAN 7 */}
           <div className="lg:col-span-7 space-y-6 no-print">
 
-            {/* SÉLECTEUR DE TEMPLATE RAPIDE */}
+            {/* PROFIL DE RAPPORT */}
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-400 flex items-center gap-2">
-                <Sliders className="w-4 h-4 text-blue-400" /> Profil de Rapport :
+                <Sliders className="w-4 h-4 text-blue-400" /> Profil du Livrable :
               </span>
               <div className="flex gap-2">
-                {["SOC Incident", "Audit / Pentest", "Bulletin CTI"].map((type) => (
+                {[
+                  "Rapport d'Écart de Conformité (Gap Analysis)",
+                  "SOC Incident",
+                  "Audit / Pentest",
+                  "Bulletin CTI"
+                ].map((type) => (
                   <button
                     key={type}
                     onClick={() => setReportType(type)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                      reportType === type ? "bg-slate-800 text-blue-400 border border-blue-500/40" : "text-slate-500 hover:text-slate-300"
+                      reportType === type ? "bg-slate-800 text-amber-400 border border-amber-500/40" : "text-slate-500 hover:text-slate-300"
                     }`}
                   >
-                    {type}
+                    {type.split(" ")[0]}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* ONGLET 1 : INCIDENT & LOGIQUE SOC */}
+            {/* ONGLET CONFORMITÉ NORMES (ISO 27001:2022 & PCI DSS v4.0) */}
+            {activeTab === "compliance" && (
+              <div className="space-y-6 transition-all duration-300 animate-fadeIn">
+                {/* ISO 27001:2022 */}
+                <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div>
+                      <h2 className="text-lg font-semibold flex items-center gap-2 text-emerald-400">
+                        <Award className="w-5 h-5" /> Auto-Évaluation ISO/IEC 27001:2022
+                      </h2>
+                      <p className="text-[11px] text-slate-400">Contrôles révisés de l'Annexe A (Thèmes : Organisationnel, Personnes, Physique, Technique)</p>
+                    </div>
+                    <span className="text-xs font-bold text-emerald-400 bg-emerald-950 border border-emerald-800 px-3 py-1 rounded-lg">
+                      Maturité : {isoMaturityPercent}%
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {ISO_CONTROLS_2022.map((ctrl) => (
+                      <label key={ctrl.id} className="flex items-center gap-3 p-2.5 bg-slate-950/80 rounded-xl border border-slate-800/80 cursor-pointer hover:border-emerald-500/40 transition">
+                        <input type="checkbox" checked={!!isoChecks[ctrl.id]} onChange={(e) => setIsoChecks({ ...isoChecks, [ctrl.id]: e.target.checked })} className="w-4 h-4 accent-emerald-500 rounded cursor-pointer" />
+                        <div className="text-xs">
+                          <span className="font-bold text-emerald-400 mr-1.5">[{ctrl.id}]</span>
+                          <span className="text-[10px] text-emerald-600 font-semibold uppercase mr-2">({ctrl.theme})</span>
+                          <span className="text-slate-200">{ctrl.label}</span>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* PCI DSS v4.0 */}
+                <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div>
+                      <h2 className="text-lg font-semibold flex items-center gap-2 text-blue-400">
+                        <CheckSquare className="w-5 h-5" /> Auto-Évaluation PCI DSS v4.0
+                      </h2>
+                      <p className="text-[11px] text-slate-400">Exigences clés du périmètre d'environnement des données de cartes (CDE)</p>
+                    </div>
+                    <span className="text-xs font-bold text-blue-400 bg-blue-950 border border-blue-800 px-3 py-1 rounded-lg">
+                      Maturité : {pciMaturityPercent}%
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {PCI_CONTROLS_V4.map((ctrl) => (
+                      <label key={ctrl.id} className="flex items-center gap-3 p-2.5 bg-slate-950/80 rounded-xl border border-slate-800/80 cursor-pointer hover:border-blue-500/40 transition">
+                        <input type="checkbox" checked={!!pciChecks[ctrl.id]} onChange={(e) => setPciChecks({ ...pciChecks, [ctrl.id]: e.target.checked })} className="w-4 h-4 accent-blue-500 rounded cursor-pointer" />
+                        <div className="text-xs">
+                          <span className="font-bold text-blue-400 mr-1.5">[{ctrl.id}]</span>
+                          <span className="text-[10px] text-blue-500 font-semibold uppercase mr-2">({ctrl.reqGroup})</span>
+                          <span className="text-slate-200">{ctrl.label}</span>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ONGLET GAP ANALYSIS DÉDIÉ AUX PME */}
+            {activeTab === "gap_analysis" && (
+              <div className="space-y-6 transition-all duration-300 animate-fadeIn">
+                <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div>
+                      <h2 className="text-lg font-semibold flex items-center gap-2 text-amber-400">
+                        <FileCheck2 className="w-5 h-5" /> Synthèse d'Écart de Conformité (Gap Analysis)
+                      </h2>
+                      <p className="text-xs text-slate-400">Restitution décisionnelle destinée à la direction et aux PME</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xs font-bold bg-amber-950 text-amber-400 border border-amber-800 px-3 py-1 rounded-lg">
+                        Maturité Globale : {overallMaturityScore}%
+                      </span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1 flex items-center gap-1">
+                      <BarChart3 className="w-3.5 h-3.5 text-amber-400" /> Constats Globaux & Synthèse des Écarts
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={gapSummary}
+                      onChange={(e) => setGapSummary(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1 flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5 text-red-400" /> Plan d'Action & Feuille de Route Priorisée
+                    </label>
+                    <textarea
+                      rows={5}
+                      value={gapActionPlan}
+                      onChange={(e) => setGapActionPlan(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ONGLET INCIDENT & LOGIQUE SOC */}
             {activeTab === "incident" && (
               <div className="space-y-6 transition-all duration-300 animate-fadeIn">
-                {/* INFORMATIONS DE L'INCIDENT */}
                 <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
                   <h2 className="text-lg font-semibold flex items-center gap-2 border-b border-slate-800 pb-3 text-blue-400">
                     <FileText className="w-5 h-5" /> Fiche d'Incident Cyber
@@ -500,7 +626,7 @@ export default function Home() {
 
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1">Analyste</label>
+                      <label className="block text-xs font-medium text-slate-400 mb-1">Analyste / Intervenant</label>
                       <input type="text" name="analystName" value={formData.analystName} onChange={handleChange} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-white" />
                     </div>
                     <div>
@@ -529,7 +655,7 @@ export default function Home() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1">Description & Chronologie</label>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Description Détaillée</label>
                     <textarea name="description" rows={3} value={formData.description} onChange={handleChange} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-white" />
                   </div>
 
@@ -544,15 +670,11 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* PARSEUR & IOCS */}
                 <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                     <h2 className="text-lg font-semibold flex items-center gap-2 text-red-400">
                       <List className="w-5 h-5" /> Indicateurs de Compromission (IOCs)
                     </h2>
-                    <button type="button" onClick={handleExportSTIX} className="bg-slate-800 hover:bg-slate-700 text-xs text-white px-3 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer border border-slate-700">
-                      <Download className="w-3.5 h-3.5 text-cyan-400" /> Export STIX 2.1
-                    </button>
                   </div>
 
                   <div className="space-y-2 bg-slate-950/60 p-3 border border-slate-800 rounded-xl">
@@ -584,10 +706,9 @@ export default function Home() {
               </div>
             )}
 
-            {/* ONGLET 2 : THREAT INTEL (CTI) & MITRE ATT&CK */}
+            {/* ONGLET CTI & THREAT INTEL */}
             {activeTab === "cti" && (
               <div className="space-y-6 transition-all duration-300 animate-fadeIn">
-                {/* CALCULATEUR CVSS */}
                 <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                     <h2 className="text-lg font-semibold flex items-center gap-2 text-amber-400">
@@ -617,7 +738,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* THREAT INTEL CTI */}
                 <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
                   <h2 className="text-lg font-semibold flex items-center gap-2 border-b border-slate-800 pb-3 text-cyan-400">
                     <Globe className="w-5 h-5" /> Threat Intelligence & Attribution
@@ -639,7 +759,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* MITRE ATT&CK */}
                 <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
                   <h2 className="text-lg font-semibold flex items-center gap-2 border-b border-slate-800 pb-3 text-purple-400">
                     <Crosshair className="w-5 h-5" /> Framework MITRE ATT&CK
@@ -663,54 +782,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* ONGLET 3 : CONFORMITÉ ISO 27001 & PCI DSS */}
-            {activeTab === "compliance" && (
-              <div className="space-y-6 transition-all duration-300 animate-fadeIn">
-                {/* ISO 27001 */}
-                <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                    <h2 className="text-lg font-semibold flex items-center gap-2 text-emerald-400">
-                      <Award className="w-5 h-5" /> Auto-Évaluation ISO 27001:2022
-                    </h2>
-                    <span className="text-xs font-bold text-emerald-400 bg-emerald-950 border border-emerald-800 px-3 py-1 rounded-lg">
-                      Maturité : {isoMaturityPercent}%
-                    </span>
-                  </div>
-
-                  <div className="space-y-2">
-                    {ISO_CONTROLS.map((ctrl) => (
-                      <label key={ctrl.id} className="flex items-center gap-3 p-2.5 bg-slate-950/80 rounded-xl border border-slate-800/80 cursor-pointer hover:border-emerald-500/40 transition">
-                        <input type="checkbox" checked={!!isoChecks[ctrl.id]} onChange={(e) => setIsoChecks({ ...isoChecks, [ctrl.id]: e.target.checked })} className="w-4 h-4 accent-emerald-500 rounded cursor-pointer" />
-                        <span className="text-xs text-slate-200"><strong className="text-emerald-400">[{ctrl.id}]</strong> {ctrl.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* PCI DSS v4.0 */}
-                <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                    <h2 className="text-lg font-semibold flex items-center gap-2 text-blue-400">
-                      <CheckSquare className="w-5 h-5" /> Auto-Évaluation PCI DSS v4.0
-                    </h2>
-                    <span className="text-xs font-bold text-blue-400 bg-blue-950 border border-blue-800 px-3 py-1 rounded-lg">
-                      Maturité : {pciMaturityPercent}%
-                    </span>
-                  </div>
-
-                  <div className="space-y-2">
-                    {PCI_CONTROLS.map((ctrl) => (
-                      <label key={ctrl.id} className="flex items-center gap-3 p-2.5 bg-slate-950/80 rounded-xl border border-slate-800/80 cursor-pointer hover:border-blue-500/40 transition">
-                        <input type="checkbox" checked={!!pciChecks[ctrl.id]} onChange={(e) => setPciChecks({ ...pciChecks, [ctrl.id]: e.target.checked })} className="w-4 h-4 accent-blue-500 rounded cursor-pointer" />
-                        <span className="text-xs text-slate-200"><strong className="text-blue-400">[{ctrl.id}]</strong> {ctrl.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ONGLET 4 : HISTORIQUE RAPPORTS */}
+            {/* ONGLET HISTORIQUE */}
             {activeTab === "history" && (
               <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4 transition-all duration-300 animate-fadeIn">
                 <h2 className="text-lg font-semibold flex items-center gap-2 border-b border-slate-800 pb-3">
@@ -737,81 +809,90 @@ export default function Home() {
             )}
           </div>
 
-          {/* COLONNE DROITE (APERÇU DU DOCUMENT PDF FIXE & INTERACTIF) - SPAN 5 */}
+          {/* COLONNE DROITE (APERÇU PDF DE GAP ANALYSIS ET LIVRABLE D'AUDIT) - SPAN 5 */}
           <div className="lg:col-span-5 bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col items-center h-fit sticky top-24">
             <div className="w-full flex items-center justify-between mb-3 no-print">
               <span className="text-xs font-semibold text-slate-400 flex items-center gap-2">
-                <Cpu className="w-4 h-4 text-emerald-400" /> Rendus PDF Dynamique
+                <Cpu className="w-4 h-4 text-amber-400" /> Rendu du Rapport d'Écart
               </span>
-              <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full">
-                Mise à jour en direct
+              <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                Prêt pour export PDF
               </span>
             </div>
             
-            {/* DOCUMENT CANONIQUE D'IMPRESSION */}
+            {/* DOCUMENT CANONIQUE EXPORTABLE EN PDF */}
             <div id="pdf-report" className="w-full bg-white text-slate-900 p-8 rounded-xl shadow-2xl border border-slate-200 text-sm space-y-5">
               
-              {/* LOGO & TITRE */}
+              {/* LOGO & EN-TÊTE D'AUDIT */}
               <div className="flex justify-between items-start border-b-2 border-slate-900 pb-4">
                 <div className="flex items-center gap-3">
                   {logoBase64 && <img src={logoBase64} alt="Logo Client" className="h-10 w-auto max-w-[100px] object-contain" />}
                   <div>
-                    <h1 className="text-lg font-bold uppercase tracking-wide text-slate-900">Rapport Cyber : {reportType}</h1>
-                    <p className="text-[10px] text-slate-500">Document Officiel d'Audit & Investigation</p>
+                    <h1 className="text-base font-bold uppercase tracking-wide text-slate-900">{reportType}</h1>
+                    <p className="text-[10px] text-slate-500">ISO/IEC 27001:2022 & PCI DSS v4.0 Framework</p>
                   </div>
                 </div>
                 <div className="text-right text-[10px] text-slate-600">
-                  <p><strong>Client :</strong> {formData.clientName}</p>
+                  <p><strong>Organisation :</strong> {formData.clientName}</p>
+                  <p><strong>Auditeur/RSSI :</strong> {formData.analystName}</p>
                   <p><strong>Date :</strong> {formData.date}</p>
                 </div>
               </div>
 
-              {/* JOUGES DE MATURITÉ PME SUR RAPPORT */}
-              <div className="grid grid-cols-2 gap-3 border p-2.5 rounded-lg bg-slate-50 border-slate-200 text-xs">
-                <div>
-                  <div className="flex justify-between font-bold mb-1 text-[10px]">
-                    <span className="text-emerald-800">ISO 27001</span>
-                    <span className="text-emerald-900">{isoMaturityPercent}%</span>
-                  </div>
-                  <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
-                    <div className="bg-emerald-600 h-full transition-all duration-500" style={{ width: `${isoMaturityPercent}%` }}></div>
-                  </div>
+              {/* DASHBOARD DE MATURITÉ COMPARED */}
+              <div className="border p-3 rounded-lg bg-slate-50 border-slate-200 space-y-3">
+                <div className="flex justify-between items-center border-b pb-2">
+                  <span className="text-xs font-bold text-slate-900">Score de Maturité Global</span>
+                  <span className={`text-xs font-extrabold px-2 py-0.5 rounded text-white ${
+                    overallMaturityScore >= 80 ? "bg-emerald-600" :
+                    overallMaturityScore >= 50 ? "bg-amber-600" : "bg-red-600"
+                  }`}>
+                    {overallMaturityScore}%
+                  </span>
                 </div>
 
-                <div>
-                  <div className="flex justify-between font-bold mb-1 text-[10px]">
-                    <span className="text-blue-800">PCI DSS v4.0</span>
-                    <span className="text-blue-900">{pciMaturityPercent}%</span>
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <div className="flex justify-between font-bold mb-1 text-[10px]">
+                      <span className="text-emerald-800">ISO 27001:2022</span>
+                      <span className="text-emerald-900">{isoMaturityPercent}%</span>
+                    </div>
+                    <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                      <div className="bg-emerald-600 h-full transition-all" style={{ width: `${isoMaturityPercent}%` }}></div>
+                    </div>
                   </div>
-                  <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
-                    <div className="bg-blue-600 h-full transition-all duration-500" style={{ width: `${pciMaturityPercent}%` }}></div>
+
+                  <div>
+                    <div className="flex justify-between font-bold mb-1 text-[10px]">
+                      <span className="text-blue-800">PCI DSS v4.0</span>
+                      <span className="text-blue-900">{pciMaturityPercent}%</span>
+                    </div>
+                    <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                      <div className="bg-blue-600 h-full transition-all" style={{ width: `${pciMaturityPercent}%` }}></div>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* SÉVÉRITÉ ET INCIDENT */}
-              <div className="bg-slate-100 p-3 rounded-lg border border-slate-200 flex justify-between items-center">
-                <div>
-                  <span className="text-[10px] text-slate-500 block uppercase font-semibold">Objet</span>
-                  <h2 className="text-sm font-bold text-slate-900">{formData.title}</h2>
-                </div>
-                <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold text-white ${
-                  formData.severity === "Critique" ? "bg-red-600" :
-                  formData.severity === "Élevée" ? "bg-orange-500" : "bg-green-600"
-                }`}>
-                  {formData.severity}
-                </span>
-              </div>
-
-              {/* PÉRIMÈTRE */}
+              {/* SYNTHÈSE DE L'AUDIT D'ÉCART */}
               <div>
-                <h3 className="text-[10px] font-bold uppercase text-slate-700 border-b pb-1 mb-1">Périmètre Impacté</h3>
-                <p className="text-xs text-slate-800 bg-slate-100 p-2 rounded">{formData.systems}</p>
+                <h3 className="text-[10px] font-bold uppercase text-slate-700 border-b pb-1 mb-1">Analyse des Écarts Identifiés</h3>
+                <p className="text-xs text-slate-800 bg-amber-50/50 p-2.5 rounded border border-amber-200/60 leading-relaxed">
+                  {gapSummary}
+                </p>
               </div>
 
-              {/* RECOMMANDATIONS */}
+              {/* FEUILLE DE ROUTE PRIORISÉE */}
               <div>
-                <h3 className="text-[10px] font-bold uppercase text-slate-700 border-b pb-1 mb-1">Recommandations & Plan d'Action</h3>
+                <h3 className="text-[10px] font-bold uppercase text-slate-700 border-b pb-1 mb-1">Plan d'Action & Feulle de Route de Remédiation</h3>
+                <p className="text-xs text-slate-800 whitespace-pre-line bg-slate-100 p-2.5 rounded border border-slate-200 font-mono leading-relaxed">
+                  {gapActionPlan}
+                </p>
+              </div>
+
+              {/* RECOMMANDATIONS ET RECOMMANDATIONS TECH */}
+              <div>
+                <h3 className="text-[10px] font-bold uppercase text-slate-700 border-b pb-1 mb-1">Orientations Stratégiques & Techniques</h3>
                 <p className="text-xs text-slate-800 whitespace-pre-line bg-green-50 text-green-900 p-2.5 rounded border border-green-200 font-mono">
                   {formData.recommendations}
                 </p>
