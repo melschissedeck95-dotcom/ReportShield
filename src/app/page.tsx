@@ -79,10 +79,27 @@ export default function ReportShieldProApp() {
     twitter: `https://twitter.com/intent/tweet?text=${shareText}&url=${shareUrl}`
   };
 
-  const handlePasswordReset = (e: React.FormEvent<HTMLFormElement>) => {
+ const handlePasswordReset = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (emailInput) {
-      setResetSent(true);
+    if (!emailInput) return;
+
+    try {
+      const response = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailInput }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setResetSent(true);
+      } else {
+        alert("Erreur lors de l'envoi : " + (data.error || "Une erreur est survenue"));
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erreur de connexion au serveur.");
     }
   };
 
