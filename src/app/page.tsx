@@ -37,18 +37,26 @@ export default function Home() {
     recommendations: "1. Activer l'authentification multifacteur (MFA) obligatoire.\n2. Isoler la machine impactée et réinitialiser les identifiants.\n3. Mettre à jour les règles du pare-feu.",
   });
 
-  // Charger l'utilisateur et ses rapports
+  // Charger l'utilisateur et ses rapports au montage du composant
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setUser(user);
-      if (user) fetchReports();
-    });
+    const initAuth = async () => {
+      const { data } = await supabase.auth.getUser();
+      setUser(data.user);
+      if (data.user) {
+        fetchReports();
+      }
+    };
+
+    initAuth();
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_, session) => {
       const currentUser = session?.user ?? null;
       setUser(currentUser);
-      if (currentUser) fetchReports();
-      else setSavedReports([]);
+      if (currentUser) {
+        fetchReports();
+      } else {
+        setSavedReports([]);
+      }
     });
 
     return () => {
@@ -56,7 +64,7 @@ export default function Home() {
     };
   }, []);
 
-  // Récupérer la liste des rapports depuis Supabase
+  // Récupérer les rapports depuis Supabase
   const fetchReports = async () => {
     const { data, error } = await supabase
       .from("reports")
@@ -78,7 +86,7 @@ export default function Home() {
     window.print();
   };
 
-  // Connexion par email
+  // Authentification Magic Link
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -98,7 +106,7 @@ export default function Home() {
     await supabase.auth.signOut();
   };
 
-  // Sauvegarder un nouveau rapport
+  // Sauvegarder un rapport
   const handleSaveReport = async () => {
     if (!user) {
       alert("Veuillez vous connecter pour sauvegarder ce rapport.");
@@ -125,12 +133,12 @@ export default function Home() {
       alert(`Erreur lors de la sauvegarde : ${error.message}`);
     } else {
       alert("Rapport sauvegardé avec succès !");
-      fetchReports(); // Rafraîchir la liste
+      fetchReports();
     }
     setLoading(false);
   };
 
-  // Charger un rapport sélectionné dans le formulaire
+  // Recharger un rapport sélectionné
   const loadReport = (report: ReportItem) => {
     setFormData({
       clientName: report.client_name,
@@ -185,7 +193,7 @@ export default function Home() {
       `}</style>
 
       <main className="min-h-screen bg-slate-900 text-slate-100 p-6 md:p-12">
-        {/* ENTÊTE AVEC AUTHENTIFICATION */}
+        {/* EN-TÊTE */}
         <header className="max-w-6xl mx-auto mb-8 flex flex-col md:flex-row items-center justify-between border-b border-slate-800 pb-6 gap-4 no-print">
           <div className="flex items-center gap-3">
             <Shield className="w-8 h-8 text-blue-500" />
@@ -247,9 +255,8 @@ export default function Home() {
         )}
 
         <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* COLONNE GAUCHE : FORMULAIRE & TABLEAU DE BORD DES RAPPORTS */}
+          {/* GAUCHE : FORMULAIRE ET HISTORIQUE */}
           <div className="space-y-6 no-print">
-            {/* FORMULAIRE DE SAISIE */}
             <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl space-y-4">
               <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 border-b border-slate-700 pb-2">
                 <FileText className="w-5 h-5 text-blue-400" /> Informations de l'Incident
@@ -361,7 +368,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* HISTORIQUE DES RAPPORTS SAUVEGARDÉS */}
+            {/* HISTORIQUE */}
             {user && (
               <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl space-y-4">
                 <h2 className="text-lg font-semibold flex items-center gap-2 border-b border-slate-700 pb-2">
@@ -410,7 +417,7 @@ export default function Home() {
             )}
           </div>
 
-          {/* COLONNE DROITE : APERÇU DU RAPPORT */}
+          {/* DROITE : APERÇU RAPPORT */}
           <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl flex flex-col items-center h-fit">
             <span className="text-xs text-slate-400 mb-2 no-print">Aperçu du document PDF</span>
             
