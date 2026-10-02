@@ -1,8 +1,32 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Shield, FileText, Printer, Save, LogIn, LogOut, CheckCircle, FolderOpen, Trash2, Clock } from "lucide-react";
+import {
+  Shield,
+  FileText,
+  Printer,
+  Save,
+  LogIn,
+  LogOut,
+  CheckCircle,
+  FolderOpen,
+  Trash2,
+  Clock,
+  Image as ImageIcon,
+  Plus,
+  Crosshair,
+  List,
+  Globe,
+  Radio
+} from "lucide-react";
 import { supabase } from "@/lib/supabase";
+
+interface IOCItem {
+  id: string;
+  type: string;
+  value: string;
+  description: string;
+}
 
 interface ReportItem {
   id: string;
@@ -15,8 +39,28 @@ interface ReportItem {
   description: string;
   root_cause: string;
   recommendations: string;
+  mitre_tactic?: string;
+  mitre_technique?: string;
+  iocs?: IOCItem[];
+  logo_url?: string;
+  threat_actor?: string;
+  threat_motivation?: string;
+  threat_sophistication?: string;
+  confidence_level?: string;
   created_at: string;
 }
+
+// Référence MITRE ATT&CK
+const MITRE_TACTICS = [
+  { name: "Initial Access", techniques: ["T1190 - Exploit Public-Facing Application", "T1078 - Valid Accounts", "T1566 - Phishing"] },
+  { name: "Execution", techniques: ["T1059 - Command and Scripting Interpreter", "T1204 - User Execution"] },
+  { name: "Persistence", techniques: ["T1098 - Account Manipulation", "T1543 - Create or Modify System Process"] },
+  { name: "Privilege Escalation", techniques: ["T1068 - Exploitation for Privilege Escalation", "T1548 - Abuse Elevation Control"] },
+  { name: "Credential Access", techniques: ["T1110 - Brute Force", "T1003 - OS Credential Dumping"] },
+  { name: "Defense Evasion", techniques: ["T1562 - Impair Defenses", "T1070 - Indicator Removal"] },
+  { name: "Lateral Movement", techniques: ["T1021 - Remote Services", "T1570 - Lateral Tool Transfer"] },
+  { name: "Exfiltration", techniques: ["T1041 - Exfiltration Over C2 Channel", "T1567 - Exfiltration Over Web Service"] },
+];
 
 export default function Home() {
   const [user, setUser] = useState<any>(null);
@@ -24,6 +68,24 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [savedReports, setSavedReports] = useState<ReportItem[]>([]);
+
+  // États du formulaire
+  const [logoBase64, setLogoBase64] = useState<string>("");
+  const [mitreTactic, setMitreTactic] = useState<string>("Credential Access");
+  const [mitreTechnique, setMitreTechnique] = useState<string>("T1110 - Brute Force");
+  
+  // États Threat Intelligence
+  const [threatActor, setThreatActor] = useState<string>("Inconnu / Non Attribué");
+  const [threatMotivation, setThreatMotivation] = useState<string>("Gain Financier (Ransomware / Extorsion)");
+  const [threatSophistication, setThreatSophistication] = useState<string>("Moyenne (Cybercriminalité organisée)");
+  const [confidenceLevel, setConfidenceLevel] = useState<string>("Moyenne");
+
+  const [iocs, setIocs] = useState<IOCItem[]>([
+    { id: "1", type: "IP Address", value: "192.168.1.105", description: "IP source de l'attaque force brute" },
+    { id: "2", type: "Hash SHA256", value: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", description: "Payload malveillant isolé" }
+  ]);
+
+  const [newIoc, setNewIoc] = useState({ type: "IP Address", value: "", description: "" });
 
   const [formData, setFormData] = useState({
     clientName: "Entreprise Client SA",
@@ -37,14 +99,11 @@ export default function Home() {
     recommendations: "1. Activer l'authentification multifacteur (MFA) obligatoire.\n2. Isoler la machine impactée et réinitialiser les identifiants.\n3. Mettre à jour les règles du pare-feu.",
   });
 
-  // Charger l'utilisateur et ses rapports au montage du composant
   useEffect(() => {
     const initAuth = async () => {
       const { data } = await supabase.auth.getUser();
       setUser(data.user);
-      if (data.user) {
-        fetchReports();
-      }
+      if (data.user) fetchReports();
     };
 
     initAuth();
@@ -52,11 +111,8 @@ export default function Home() {
     const { data: authListener } = supabase.auth.onAuthStateChange((_, session) => {
       const currentUser = session?.user ?? null;
       setUser(currentUser);
-      if (currentUser) {
-        fetchReports();
-      } else {
-        setSavedReports([]);
-      }
+      if (currentUser) fetchReports();
+      else setSavedReports([]);
     });
 
     return () => {
@@ -64,7 +120,6 @@ export default function Home() {
     };
   }, []);
 
-  // Récupérer les rapports depuis Supabase
   const fetchReports = async () => {
     const { data, error } = await supabase
       .from("reports")
@@ -82,11 +137,31 @@ export default function Home() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setLogoBase64(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleAddIoc = () => {
+    if (!newIoc.value) return;
+    setIocs([...iocs, { id: Date.now().toString(), ...newIoc }]);
+    setNewIoc({ type: "IP Address", value: "", description: "" });
+  };
+
+  const handleRemoveIoc = (id: string) => {
+    setIocs(iocs.filter(ioc => ioc.id !== id));
+  };
+
   const handlePrint = () => {
     window.print();
   };
 
-  // Authentification Magic Link
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -106,7 +181,6 @@ export default function Home() {
     await supabase.auth.signOut();
   };
 
-  // Sauvegarder un rapport
   const handleSaveReport = async () => {
     if (!user) {
       alert("Veuillez vous connecter pour sauvegarder ce rapport.");
@@ -126,6 +200,14 @@ export default function Home() {
         description: formData.description,
         root_cause: formData.rootCause,
         recommendations: formData.recommendations,
+        mitre_tactic: mitreTactic,
+        mitre_technique: mitreTechnique,
+        iocs: iocs,
+        logo_url: logoBase64,
+        threat_actor: threatActor,
+        threat_motivation: threatMotivation,
+        threat_sophistication: threatSophistication,
+        confidence_level: confidenceLevel
       },
     ]);
 
@@ -138,7 +220,6 @@ export default function Home() {
     setLoading(false);
   };
 
-  // Recharger un rapport sélectionné
   const loadReport = (report: ReportItem) => {
     setFormData({
       clientName: report.client_name,
@@ -151,9 +232,16 @@ export default function Home() {
       rootCause: report.root_cause || "",
       recommendations: report.recommendations || "",
     });
+    setMitreTactic(report.mitre_tactic || "Credential Access");
+    setMitreTechnique(report.mitre_technique || "T1110 - Brute Force");
+    setIocs(report.iocs || []);
+    setLogoBase64(report.logo_url || "");
+    setThreatActor(report.threat_actor || "Inconnu / Non Attribué");
+    setThreatMotivation(report.threat_motivation || "Gain Financier (Ransomware / Extorsion)");
+    setThreatSophistication(report.threat_sophistication || "Moyenne (Cybercriminalité organisée)");
+    setConfidenceLevel(report.confidence_level || "Moyenne");
   };
 
-  // Supprimer un rapport
   const deleteReport = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm("Voulez-vous vraiment supprimer ce rapport ?")) return;
@@ -165,6 +253,8 @@ export default function Home() {
       fetchReports();
     }
   };
+
+  const selectedTacticObj = MITRE_TACTICS.find(t => t.name === mitreTactic);
 
   return (
     <>
@@ -255,12 +345,26 @@ export default function Home() {
         )}
 
         <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* GAUCHE : FORMULAIRE ET HISTORIQUE */}
+          {/* COLONNE GAUCHE : FORMULAIRES */}
           <div className="space-y-6 no-print">
+            
+            {/* 1. INFORMATIONS GÉNÉRALES & LOGO */}
             <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl space-y-4">
               <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 border-b border-slate-700 pb-2">
-                <FileText className="w-5 h-5 text-blue-400" /> Informations de l'Incident
+                <FileText className="w-5 h-5 text-blue-400" /> Informations Générales
               </h2>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1 flex items-center gap-1">
+                  <ImageIcon className="w-3.5 h-3.5" /> Logo de l'Entreprise / Client
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleLogoUpload}
+                  className="w-full text-xs text-slate-400 bg-slate-900 border border-slate-700 rounded p-2 cursor-pointer"
+                />
+              </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -368,6 +472,176 @@ export default function Home() {
               </div>
             </div>
 
+            {/* 2. MODULE THREAT INTELLIGENCE (CTI) */}
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl space-y-4">
+              <h2 className="text-lg font-semibold flex items-center gap-2 border-b border-slate-700 pb-2 text-cyan-400">
+                <Globe className="w-5 h-5" /> Threat Intelligence (CTI)
+              </h2>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Acteur de la Menace / Groupe</label>
+                  <input
+                    type="text"
+                    placeholder="ex: LockBit 3.0, APT29, Opportuniste"
+                    value={threatActor}
+                    onChange={(e) => setThreatActor(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Indice de Confiance (Attribution)</label>
+                  <select
+                    value={confidenceLevel}
+                    onChange={(e) => setConfidenceLevel(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                  >
+                    <option value="Faible">Faible (Hypothèse)</option>
+                    <option value="Moyenne">Moyenne (Indices concordants)</option>
+                    <option value="Élevée">Élevée (Attribution confirmée)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Motivation Principale</label>
+                  <select
+                    value={threatMotivation}
+                    onChange={(e) => setThreatMotivation(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                  >
+                    <option value="Gain Financier (Ransomware / Extorsion)">Gain Financier (Extorsion)</option>
+                    <option value="Espionnage Industriel / Étatique">Espionnage</option>
+                    <option value="Sabotage / Destructif">Sabotage / Destructif</option>
+                    <option value="Hacktivisme">Hacktivisme</option>
+                    <option value="Opportuniste (Script Kiddie)">Opportuniste</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Sophistication de la Menace</label>
+                  <select
+                    value={threatSophistication}
+                    onChange={(e) => setThreatSophistication(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                  >
+                    <option value="Faible (Attaque basique automatise)">Faible (Basique)</option>
+                    <option value="Moyenne (Cybercriminalité organisée)">Moyenne (Organisée)</option>
+                    <option value="Élevée (APT / Groupe Étatique)">Élevée (APT / Étatique)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. MODULE MITRE ATT&CK */}
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl space-y-4">
+              <h2 className="text-lg font-semibold flex items-center gap-2 border-b border-slate-700 pb-2 text-purple-400">
+                <Crosshair className="w-5 h-5" /> Framework MITRE ATT&CK
+              </h2>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Tactique (Tactic)</label>
+                  <select
+                    value={mitreTactic}
+                    onChange={(e) => {
+                      setMitreTactic(e.target.value);
+                      const tactic = MITRE_TACTICS.find(t => t.name === e.target.value);
+                      if (tactic) setMitreTechnique(tactic.techniques[0]);
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-purple-500"
+                  >
+                    {MITRE_TACTICS.map((t) => (
+                      <option key={t.name} value={t.name}>{t.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Technique</label>
+                  <select
+                    value={mitreTechnique}
+                    onChange={(e) => setMitreTechnique(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-purple-500"
+                  >
+                    {selectedTacticObj?.techniques.map((tech) => (
+                      <option key={tech} value={tech}>{tech}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* 4. MODULE IOCs */}
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl space-y-4">
+              <h2 className="text-lg font-semibold flex items-center gap-2 border-b border-slate-700 pb-2 text-red-400">
+                <List className="w-5 h-5" /> Indicateurs de Compromission (IOCs)
+              </h2>
+
+              <div className="space-y-2">
+                <div className="grid grid-cols-3 gap-2">
+                  <select
+                    value={newIoc.type}
+                    onChange={(e) => setNewIoc({ ...newIoc, type: e.target.value })}
+                    className="bg-slate-900 border border-slate-700 rounded p-1.5 text-xs text-white"
+                  >
+                    <option value="IP Address">Adresse IP</option>
+                    <option value="Domain / URL">Domaine / URL</option>
+                    <option value="Hash SHA256">Hash SHA256</option>
+                    <option value="Hash MD5">Hash MD5</option>
+                    <option value="File / Registry">Fichier / Registre</option>
+                  </select>
+
+                  <input
+                    type="text"
+                    placeholder="Valeur (ex: 192.168.1.1)"
+                    value={newIoc.value}
+                    onChange={(e) => setNewIoc({ ...newIoc, value: e.target.value })}
+                    className="bg-slate-900 border border-slate-700 rounded p-1.5 text-xs text-white"
+                  />
+
+                  <input
+                    type="text"
+                    placeholder="Description"
+                    value={newIoc.description}
+                    onChange={(e) => setNewIoc({ ...newIoc, description: e.target.value })}
+                    className="bg-slate-900 border border-slate-700 rounded p-1.5 text-xs text-white"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleAddIoc}
+                  className="w-full bg-slate-700 hover:bg-slate-600 text-xs text-white py-1.5 rounded flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Ajouter l'IOC
+                </button>
+              </div>
+
+              {iocs.length > 0 && (
+                <div className="space-y-1.5 pt-2">
+                  {iocs.map((ioc) => (
+                    <div key={ioc.id} className="flex items-center justify-between bg-slate-900 p-2 rounded text-xs border border-slate-700">
+                      <div>
+                        <span className="font-bold text-red-400 mr-2">[{ioc.type}]</span>
+                        <span className="font-mono text-slate-200">{ioc.value}</span>
+                        {ioc.description && <span className="text-slate-400 block text-[10px]">{ioc.description}</span>}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveIoc(ioc.id)}
+                        className="text-slate-500 hover:text-red-400 p-1"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* HISTORIQUE */}
             {user && (
               <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl space-y-4">
@@ -417,7 +691,7 @@ export default function Home() {
             )}
           </div>
 
-          {/* DROITE : APERÇU RAPPORT */}
+          {/* COLONNE DROITE : APERÇU PDF DYNAMIQUE */}
           <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl flex flex-col items-center h-fit">
             <span className="text-xs text-slate-400 mb-2 no-print">Aperçu du document PDF</span>
             
@@ -425,10 +699,16 @@ export default function Home() {
               id="pdf-report"
               className="w-full bg-white text-slate-900 p-8 rounded shadow border border-slate-200 text-sm space-y-6"
             >
+              {/* EN-TÊTE PDF AVEC LOGO */}
               <div className="flex justify-between items-start border-b-2 border-slate-900 pb-4">
-                <div>
-                  <h1 className="text-xl font-bold uppercase tracking-wide text-slate-900">Rapport d'Incident IT & Cyber</h1>
-                  <p className="text-xs text-slate-500">Document de Synthèse Exécutive</p>
+                <div className="flex items-center gap-4">
+                  {logoBase64 && (
+                    <img src={logoBase64} alt="Logo Client" className="h-12 w-auto max-w-[120px] object-contain" />
+                  )}
+                  <div>
+                    <h1 className="text-xl font-bold uppercase tracking-wide text-slate-900">Rapport d'Incident IT & Cyber</h1>
+                    <p className="text-xs text-slate-500">Document de Synthèse Exécutive</p>
+                  </div>
                 </div>
                 <div className="text-right text-xs text-slate-600">
                   <p><strong>Client :</strong> {formData.clientName}</p>
@@ -437,6 +717,7 @@ export default function Home() {
                 </div>
               </div>
 
+              {/* DÉTAILS ET SÉVÉRITÉ */}
               <div className="bg-slate-100 p-4 rounded border border-slate-200 flex justify-between items-center">
                 <div>
                   <span className="text-xs text-slate-500 block uppercase font-semibold">Incident</span>
@@ -451,21 +732,93 @@ export default function Home() {
                 </span>
               </div>
 
+              {/* SECTION THREAT INTELLIGENCE (CTI) */}
+              <div className="border border-cyan-200 bg-cyan-50 p-3 rounded space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-800 flex items-center gap-1">
+                    <Radio className="w-3 h-3 text-cyan-600" /> Profil de la Menace & Attribution CTI
+                  </span>
+                  <span className="text-[10px] font-semibold text-cyan-700 bg-cyan-100 px-2 py-0.5 rounded">
+                    Confiance : {confidenceLevel}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <p className="text-[10px] text-cyan-600 font-medium">Acteur Suspecté / Attribué :</p>
+                    <p className="font-bold text-cyan-950">{threatActor}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-cyan-600 font-medium">Motivation :</p>
+                    <p className="font-medium text-cyan-900">{threatMotivation}</p>
+                  </div>
+                </div>
+
+                <div className="text-xs pt-1 border-t border-cyan-200/60">
+                  <span className="text-[10px] text-cyan-600 font-medium">Niveau de Sophistication : </span>
+                  <span className="font-medium text-cyan-900">{threatSophistication}</span>
+                </div>
+              </div>
+
+              {/* BADGES MITRE ATT&CK */}
+              <div className="border border-purple-200 bg-purple-50 p-3 rounded space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700 block">Classification MITRE ATT&CK</span>
+                <div className="flex items-center gap-2">
+                  <span className="bg-purple-200 text-purple-900 px-2 py-0.5 rounded text-xs font-semibold">
+                    Tactique : {mitreTactic}
+                  </span>
+                  <span className="bg-purple-900 text-white px-2 py-0.5 rounded text-xs font-semibold">
+                    Technique : {mitreTechnique}
+                  </span>
+                </div>
+              </div>
+
+              {/* PÉRIMÈTRE */}
               <div>
                 <h3 className="text-xs font-bold uppercase text-slate-700 border-b pb-1 mb-2">Périmètre / Équipements Impactés</h3>
                 <p className="text-xs text-slate-800 bg-slate-100 p-2 rounded">{formData.systems}</p>
               </div>
 
+              {/* CHRONOLOGIE */}
               <div>
                 <h3 className="text-xs font-bold uppercase text-slate-700 border-b pb-1 mb-2">Description & Chronologie</h3>
                 <p className="text-xs text-slate-800 whitespace-pre-line">{formData.description}</p>
               </div>
 
+              {/* CAUSE RACINE */}
               <div>
                 <h3 className="text-xs font-bold uppercase text-slate-700 border-b pb-1 mb-2">Cause Racine Identifiée</h3>
                 <p className="text-xs text-slate-800 bg-red-50 text-red-900 p-2 rounded border border-red-200">{formData.rootCause}</p>
               </div>
 
+              {/* TABLEAU DES IOCs */}
+              {iocs.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-bold uppercase text-slate-700 border-b pb-1 mb-2">Indicateurs de Compromission (IOCs)</h3>
+                  <div className="border rounded overflow-hidden">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-100 border-b text-slate-600">
+                          <th className="p-1.5 font-semibold">Type</th>
+                          <th className="p-1.5 font-semibold">Indicateur (Valeur)</th>
+                          <th className="p-1.5 font-semibold">Description</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {iocs.map((ioc, idx) => (
+                          <tr key={idx} className="border-b last:border-0 hover:bg-slate-50">
+                            <td className="p-1.5 font-bold text-red-600">{ioc.type}</td>
+                            <td className="p-1.5 font-mono text-slate-900">{ioc.value}</td>
+                            <td className="p-1.5 text-slate-600">{ioc.description || "-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* RECOMMANDATIONS */}
               <div>
                 <h3 className="text-xs font-bold uppercase text-slate-700 border-b pb-1 mb-2">Recommandations & Plan d'Action</h3>
                 <p className="text-xs text-slate-800 whitespace-pre-line bg-green-50 text-green-900 p-3 rounded border border-green-200 font-mono">
